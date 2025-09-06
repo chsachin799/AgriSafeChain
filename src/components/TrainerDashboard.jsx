@@ -1,8 +1,8 @@
-import React, { useState, useRef } from 'react';
-import html2canvas from 'html2canvas';
+import React, { useState} from 'react';
 import QRCode from 'qrcode';
-import CertificatePreview from './CertificatePreview.jsx';
 import { v4 as uuidv4 } from 'uuid';
+import CertificateCanvas from './CertificateCanvas.jsx';
+
 
 const Modal = ({ title, message, onClose }) => {
   if (!message) return null;
@@ -35,13 +35,12 @@ const TrainerDashboard = () => {
   const [certificateId, setCertificateId] = useState('');
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [certificateImageUrl, setCertificateImageUrl] = useState('');
-  const previewRef = useRef(null);
 
   const generateImage = async () => {
-    if (!previewRef.current) throw new Error("Preview element not found.");
-    const canvas = await html2canvas(previewRef.current);
-    return canvas.toDataURL("image/png");
-  };
+  const canvas = document.querySelector("canvas");
+  return canvas.toDataURL("image/png");
+};
+
 
   const uploadToCloudinary = async (base64Image) => {
     const formData = new FormData();
@@ -75,8 +74,9 @@ const TrainerDashboard = () => {
         setCertificateImageUrl(imageUrl);
 
         const qr = await QRCode.toDataURL(
-          `https://agrisafechain.vercel.app/viewer?img=${encodeURIComponent(imageUrl)}&id=${id}`
-        );
+  `https://agrisafechain.vercel.app/viewer?img=${encodeURIComponent(imageUrl)}&id=${id}`
+);
+
         setQrCodeUrl(qr);
       } catch (error) {
         setModalMessage(`Preview error: ${error.message}`);
@@ -164,13 +164,13 @@ const TrainerDashboard = () => {
         </div>
       ) : (
         <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-xl p-6 max-w-2xl mx-auto">
-          <CertificatePreview
-            ref={previewRef}
-            recipientName={studentAddress}
-            courseName={certificateName}
-            issueDate={new Date().toLocaleDateString()}
-            certificateId={certificateId}
-          />
+          <CertificateCanvas
+  recipientName={studentAddress}
+  courseName={certificateName}
+  issueDate={new Date().toLocaleDateString()}
+  certificateId={certificateId}
+/>
+
           <div className="mt-4 text-center">
             {qrCodeUrl && <img src={qrCodeUrl} alt="QR Code" className="mx-auto w-32 h-32" />}
           </div>
