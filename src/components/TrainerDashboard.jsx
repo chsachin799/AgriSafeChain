@@ -1,27 +1,7 @@
 import React, { useState} from 'react';
-import QRCode from 'qrcode';
 import { v4 as uuidv4 } from 'uuid';
+import Modal from './Modal.jsx';
 import CertificateCanvas from './CertificateCanvas.jsx';
-
-
-const Modal = ({ title, message, onClose }) => {
-  if (!message) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-gray-900 bg-opacity-50 dark:bg-opacity-80 backdrop-blur-sm" onClick={onClose}></div>
-      <div className="bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-2xl p-6 max-w-md mx-auto shadow-2xl transform transition-all duration-300 scale-95 dark:shadow-xl dark:shadow-teal-900">
-        <h3 className="text-xl font-bold mb-4">{title}</h3>
-        <p className="text-gray-700 dark:text-gray-300 mb-6 whitespace-pre-line">{message}</p>
-        <button
-          onClick={onClose}
-          className="py-2 px-4 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-500 text-white font-semibold hover:from-teal-600 hover:to-emerald-600 dark:from-emerald-600 dark:to-emerald-700 dark:hover:from-emerald-700 dark:hover:to-emerald-800 transition-all duration-300 transform hover:scale-105"
-        >
-          Close
-        </button>
-      </div>
-    </div>
-  );
-};
 
 const API_BASE_URL = 'http://localhost:3001/api';
 
@@ -33,64 +13,24 @@ const TrainerDashboard = () => {
   const [modalMessage, setModalMessage] = useState('');
   const [previewMode, setPreviewMode] = useState(false);
   const [certificateId, setCertificateId] = useState('');
-  const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [certificateImageUrl, setCertificateImageUrl] = useState('');
 
-  const generateImage = async () => {
-  const canvas = document.querySelector("canvas");
-  return canvas.toDataURL("image/png");
-};
-
-
-  const uploadToCloudinary = async (base64Image) => {
-    const formData = new FormData();
-    formData.append("file", base64Image);
-    formData.append("upload_preset", "AgriSafeChain");
-
-    try {
-      const response = await fetch("https://api.cloudinary.com/v1_1/dxjg9j9gh/image/upload", {
-        method: "POST",
-        body: formData,
-      });
-      const data = await response.json();
-      return data.secure_url;
-    } catch (error) {
-      console.error("Cloudinary upload failed:", error);
-      setModalMessage("Error uploading image to Cloudinary.");
-      return null;
-    }
-  };
-
-  const generatePreview = async () => {
-    setLoading(true);
-    const id = uuidv4();
-    setCertificateId(id);
+  // This function simply triggers the preview mode and generates a new unique ID.
+  const generatePreview = () => {
+    setCertificateId(uuidv4());
     setPreviewMode(true);
-
-    setTimeout(async () => {
-      try {
-        const image = await generateImage();
-        const imageUrl = await uploadToCloudinary(image);
-        setCertificateImageUrl(imageUrl);
-
-        const qr = await QRCode.toDataURL(
-  `https://agrisafechain.vercel.app/viewer?img=${encodeURIComponent(imageUrl)}&id=${id}`
-);
-
-        setQrCodeUrl(qr);
-      } catch (error) {
-        setModalMessage(`Preview error: ${error.message}`);
-        setPreviewMode(false);
-      } finally {
-        setLoading(false);
-      }
-    }, 100);
   };
 
   const handleIssue = async () => {
+    // Ensure the image has been generated and uploaded before proceeding.
+    if (!certificateImageUrl) {
+        setModalMessage("Error: Please generate a certificate preview first.");
+        return;
+    }
+
     setLoading(true);
     setModalMessage('');
-
+    
     try {
       const response = await fetch(`${API_BASE_URL}/issue-certificate`, {
         method: 'POST',
@@ -164,16 +104,13 @@ const TrainerDashboard = () => {
         </div>
       ) : (
         <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-xl p-6 max-w-2xl mx-auto">
+          {/* We pass the props and the callback function to the child component */}
           <CertificateCanvas
-  recipientName={studentAddress}
-  courseName={certificateName}
-  issueDate={new Date().toLocaleDateString()}
-  certificateId={certificateId}
-/>
-
-          <div className="mt-4 text-center">
-            {qrCodeUrl && <img src={qrCodeUrl} alt="QR Code" className="mx-auto w-32 h-32" />}
-          </div>
+            studentAddress={studentAddress}
+            certificateName={certificateName}
+            certificateId={certificateId}
+            onImageGenerated={setCertificateImageUrl}
+          />
           <button
             onClick={handleIssue}
             className="mt-6 w-full py-2 px-4 bg-teal-600 text-white rounded-lg hover:bg-teal-700 dark:bg-emerald-600 dark:hover:bg-emerald-700 transition"
