@@ -6,12 +6,13 @@ import CenterDashboard from "./components/CenterDashboard.jsx";
 import TrainerDashboard from "./components/TrainerDashboard.jsx";
 import FarmerDashboard from "./components/FarmerDashboard.jsx";
 import RegistrationForms from "./components/RegistrationForms.jsx";
-import Login from "./components/Login.jsx"; // 👈 ADDED
-import Register from "./components/Register.jsx"; // 👈 ADDED
+import Login from "./components/Login.jsx"; 
+import Register from "./components/Register.jsx"; 
+import CertificateViewer from "./components/CertificateViewer.jsx"; 
 
 const App = () => {
   const [darkMode, setDarkMode] = useState(false);
-  const [language, setLanguage] = useState("en"); // 🌐 default language
+  const [language, setLanguage] = useState("en");
   const [translations, setTranslations] = useState({});
 
   // Load language + dark mode from localStorage on mount
@@ -152,9 +153,9 @@ const App = () => {
             <Route path="/trainer" element={<TrainerDashboard />} />
             <Route path="/farmer" element={<FarmerDashboard />} />
             <Route path="/register" element={<RegistrationForms />} />
-            {/* ADDED LOGIN AND REGISTER ROUTES */}
             <Route path="/login" element={<Login />} />
             <Route path="/register-user" element={<Register />} />
+            <Route path="/viewer" element={<CertificateViewer />} /> {/* ✅ NEW ROUTE */}
           </Routes>
         </div>
       </div>

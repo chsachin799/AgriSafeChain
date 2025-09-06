@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
-import QRCode from 'qrcode';
 import html2canvas from 'html2canvas';
+import QRCode from 'qrcode';
+import CertificatePreview from './CertificatePreview.jsx';
 import { v4 as uuidv4 } from 'uuid';
 
 const Modal = ({ title, message, onClose }) => {
@@ -33,25 +34,62 @@ const TrainerDashboard = () => {
   const [previewMode, setPreviewMode] = useState(false);
   const [certificateId, setCertificateId] = useState('');
   const [qrCodeUrl, setQrCodeUrl] = useState('');
+  const [certificateImageUrl, setCertificateImageUrl] = useState('');
   const previewRef = useRef(null);
 
-  const generatePreview = async () => {
-    const id = uuidv4();
-    setCertificateId(id);
-    const qr = await QRCode.toDataURL(`https://agrisafechain.com/certificate/${id}`);
-    setQrCodeUrl(qr);
-    setPreviewMode(true);
+  const generateImage = async () => {
+    if (!previewRef.current) throw new Error("Preview element not found.");
+    const canvas = await html2canvas(previewRef.current);
+    return canvas.toDataURL("image/png");
   };
 
-  const generateImage = async () => {
-    const canvas = await html2canvas(previewRef.current);
-    return canvas.toDataURL('image/png');
+  const uploadToCloudinary = async (base64Image) => {
+    const formData = new FormData();
+    formData.append("file", base64Image);
+    formData.append("upload_preset", "AgriSafeChain");
+
+    try {
+      const response = await fetch("https://api.cloudinary.com/v1_1/dxjg9j9gh/image/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await response.json();
+      return data.secure_url;
+    } catch (error) {
+      console.error("Cloudinary upload failed:", error);
+      setModalMessage("Error uploading image to Cloudinary.");
+      return null;
+    }
+  };
+
+  const generatePreview = async () => {
+    setLoading(true);
+    const id = uuidv4();
+    setCertificateId(id);
+    setPreviewMode(true);
+
+    setTimeout(async () => {
+      try {
+        const image = await generateImage();
+        const imageUrl = await uploadToCloudinary(image);
+        setCertificateImageUrl(imageUrl);
+
+        const qr = await QRCode.toDataURL(
+          `https://agrisafechain.vercel.app/viewer?img=${encodeURIComponent(imageUrl)}&id=${id}`
+        );
+        setQrCodeUrl(qr);
+      } catch (error) {
+        setModalMessage(`Preview error: ${error.message}`);
+        setPreviewMode(false);
+      } finally {
+        setLoading(false);
+      }
+    }, 100);
   };
 
   const handleIssue = async () => {
     setLoading(true);
     setModalMessage('');
-    const image = await generateImage();
 
     try {
       const response = await fetch(`${API_BASE_URL}/issue-certificate`, {
@@ -62,7 +100,7 @@ const TrainerDashboard = () => {
           certificateName,
           privateKey: trainerPrivateKey,
           certificateId,
-          image,
+          image: certificateImageUrl,
         }),
       });
 
@@ -109,7 +147,7 @@ const TrainerDashboard = () => {
               required
             />
             <input
-              type="text"
+              type="password"
               value={trainerPrivateKey}
               onChange={(e) => setTrainerPrivateKey(e.target.value)}
               placeholder="Your Private Key"
@@ -126,13 +164,15 @@ const TrainerDashboard = () => {
         </div>
       ) : (
         <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-xl p-6 max-w-2xl mx-auto">
-          <div ref={previewRef} className="relative p-6 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
-            <h2 className="text-3xl font-bold text-center mb-4">AgriSafeChain Certificate</h2>
-            <p className="text-lg mb-2"><strong>Student Address:</strong> {studentAddress}</p>
-            <p className="text-lg mb-2"><strong>Certificate:</strong> {certificateName}</p>
-            <p className="text-sm mt-4 italic text-gray-500 dark:text-gray-400">Certificate ID: {certificateId}</p>
-            <p className="text-sm italic text-gray-500 dark:text-gray-400">Blockchain Verified • {new Date().toLocaleString()}</p>
-            {qrCodeUrl && <img src={qrCodeUrl} alt="QR Code" className="w-24 h-24 absolute bottom-4 right-4" />}
+          <CertificatePreview
+            ref={previewRef}
+            recipientName={studentAddress}
+            courseName={certificateName}
+            issueDate={new Date().toLocaleDateString()}
+            certificateId={certificateId}
+          />
+          <div className="mt-4 text-center">
+            {qrCodeUrl && <img src={qrCodeUrl} alt="QR Code" className="mx-auto w-32 h-32" />}
           </div>
           <button
             onClick={handleIssue}
