@@ -23,7 +23,10 @@
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "tailwind-init": "tailwindcss init -p"
+    "tailwind-init": "tailwindcss init -p",
+    "dev": "concurrently \"npm run backend\" \"npm start\"",
+    "backend": "cd backend && npm start",
+    "install-all": "npm install && cd backend && npm install"
   },
   "eslintConfig": {
     "extends": [
@@ -45,6 +48,7 @@
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "concurrently": "^9.2.1",
     "hardhat": "^2.26.1",
     "react-scripts": "^5.0.1"
   },
