@@ -2,14 +2,15 @@
 
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
-
-const Navbar = ({ isLoggedIn, user, onLogout, darkMode, setDarkMode, language, setLanguage, translations }) => {
+const Navbar = ({ darkMode, setDarkMode, language, setLanguage, translations }) => {
   const navigate = useNavigate();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const { isAuthenticated, user, logout, canAccessDashboard } = useAuth();
 
   const handleLogout = () => {
-    onLogout();
+    logout();
     navigate('/login');
   };
 
@@ -17,7 +18,7 @@ const Navbar = ({ isLoggedIn, user, onLogout, darkMode, setDarkMode, language, s
     setShowProfileMenu(!showProfileMenu);
   };
 
- const t = (key) => translations?.[key] || key;
+  const t = (key) => translations?.[key] || key;
 
 
   return (
@@ -31,41 +32,57 @@ const Navbar = ({ isLoggedIn, user, onLogout, darkMode, setDarkMode, language, s
           AgriSafeChain
         </Link>
 
-        {/* Links */}
+        {/* Links - Role-based navigation */}
         <div className="space-x-4 flex items-center">
-          <Link to="/government" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
-            {t("government")}
-          </Link>
-          <Link to="/government-enhanced" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
-            Enhanced Gov
-          </Link>
+          {/* Public links */}
           <Link to="/transparency" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
             Transparency
           </Link>
-          <Link to="/monitoring" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
-            Monitoring
-          </Link>
-          <Link to="/kyc" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
-            KYC
-          </Link>
-          <Link to="/center" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
-            {t("center")}
-          </Link>
-          <Link to="/trainer" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
-            {t("trainer")}
-          </Link>
-          <Link to="/farmer" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
-            {t("farmer")}
-          </Link>
-          <Link to="/register" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
-            {t("register")}
-          </Link>
+          
+          {/* Government-only links */}
+          {canAccessDashboard('government') && (
+            <>
+              <Link to="/government" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
+                {t("government")}
+              </Link>
+              <Link to="/government-enhanced" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
+                Enhanced Gov
+              </Link>
+              <Link to="/monitoring" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
+                Monitoring
+              </Link>
+              <Link to="/center" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
+                {t("center")}
+              </Link>
+            </>
+          )}
+          
+          {/* Trainer and Government links */}
+          {canAccessDashboard('trainer') && (
+            <Link to="/trainer" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
+              {t("trainer")}
+            </Link>
+          )}
+          
+          {/* Farmer, Trainer, and Government links */}
+          {canAccessDashboard('farmer') && (
+            <Link to="/farmer" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
+              {t("farmer")}
+            </Link>
+          )}
+          
+          {/* KYC link for authenticated users */}
+          {isAuthenticated && (
+            <Link to="/kyc" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
+              KYC
+            </Link>
+          )}
 
           {/* Conditional rendering for Login/Profile menu */}
-          {isLoggedIn ? (
+          {isAuthenticated ? (
             <div className="relative flex items-center space-x-4">
               <div className="text-gray-700 dark:text-gray-300">
-                Hello, {user?.name || "User"}!
+                Hello, {user?.email || "User"}! ({user?.role})
               </div>
               <button
                 onClick={toggleProfileMenu}

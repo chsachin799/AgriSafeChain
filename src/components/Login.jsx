@@ -1,14 +1,16 @@
 import React, { useState } from "react";
-import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 
-// The component now accepts a prop called 'onLogin'
-const Login = ({ onLogin }) => {
+const Login = () => {
   const [formData, setFormData] = useState({
     email: "",
     password: "",
   });
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   const { email, password } = formData;
 
@@ -21,29 +23,35 @@ const Login = ({ onLogin }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError("");
+    setLoading(true);
+
     try {
-      const res = await axios.post(
-        "http://localhost:3001/api/auth/login",
-        formData
-      );
-
-      // Get the user data from the response (adjust if needed)
-      const userData = res.data.user;
-
-      // Store the token and user data in local storage
-      localStorage.setItem("token", res.data.token);
-      localStorage.setItem("user", JSON.stringify(userData));
-
-      // Update state in parent (App.jsx)
-      onLogin(userData);
-
-      alert("Login successful! You will be redirected to the dashboard.");
-
-      // Redirect based on role (currently fixed to /trainer)
-      navigate("/trainer");
+      const result = await login(email, password);
+      
+      if (result.success) {
+        // Redirect based on role
+        switch (result.user.role) {
+          case 'government':
+            navigate("/government");
+            break;
+          case 'trainer':
+            navigate("/trainer");
+            break;
+          case 'farmer':
+            navigate("/farmer");
+            break;
+          default:
+            navigate("/");
+        }
+      } else {
+        setError(result.error);
+      }
     } catch (err) {
-      alert("Login failed. Please check your credentials.");
-      console.error(err.response?.data || err.message);
+      setError("Login failed. Please try again.");
+      console.error(err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -67,6 +75,12 @@ const Login = ({ onLogin }) => {
             Login to AgriSafeChain
           </h2>
           <form onSubmit={handleSubmit} className="space-y-6">
+            {error && (
+              <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+                {error}
+              </div>
+            )}
+            
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Email Address
@@ -78,7 +92,8 @@ const Login = ({ onLogin }) => {
                 value={email}
                 onChange={handleChange}
                 required
-                className="mt-1 w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-gray-400 dark:border-gray-600"
+                disabled={loading}
+                className="mt-1 w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-gray-400 dark:border-gray-600 disabled:opacity-50"
               />
             </div>
             <div>
@@ -92,14 +107,16 @@ const Login = ({ onLogin }) => {
                 value={password}
                 onChange={handleChange}
                 required
-                className="mt-1 w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-gray-400 dark:border-gray-600"
+                disabled={loading}
+                className="mt-1 w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-gray-400 dark:border-gray-600 disabled:opacity-50"
               />
             </div>
             <button
               type="submit"
-              className="w-full py-2 px-4 bg-teal-600 text-white font-semibold rounded-md hover:bg-teal-700 transition-colors duration-300 dark:bg-emerald-600 dark:hover:bg-emerald-700"
+              disabled={loading}
+              className="w-full py-2 px-4 bg-teal-600 text-white font-semibold rounded-md hover:bg-teal-700 transition-colors duration-300 dark:bg-emerald-600 dark:hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Login
+              {loading ? "Logging in..." : "Login"}
             </button>
           </form>
           <p className="mt-6 text-center text-sm text-gray-600 dark:text-gray-400">

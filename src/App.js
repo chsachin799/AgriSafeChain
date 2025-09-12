@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { AuthProvider } from "./contexts/AuthContext";
 import Home from "./components/Home.jsx";
 import GovernmentDashboard from "./components/GovernmentDashboard.jsx";
 import EnhancedGovernmentDashboard from "./components/EnhancedGovernmentDashboard.jsx";
 import TransparencyDashboard from "./components/TransparencyDashboard.jsx";
 import RealTimeMonitoring from "./components/RealTimeMonitoring.jsx";
-import KYCVerification from "./components/KYCVerification.jsx";
+import KYCVerification from "./components/EnhancedKYCVerification.jsx";
 import CenterDashboard from "./components/CenterDashboard.jsx";
 import TrainerDashboard from "./components/TrainerDashboard.jsx";
 import FarmerDashboard from "./components/FarmerDashboard.jsx";
@@ -15,15 +16,16 @@ import Register from "./components/Register.jsx";
 import CertificateViewer from "./components/CertificateViewer.jsx";
 import Navbar from "./components/Navbar.jsx";
 import Profile from "./components/Profile.jsx";
-import Help from "./components/Help.jsx"; // 👈 New: Import the Help component
-import app from "./firebase"; // Assuming this is correct for your project
+import Help from "./components/Help.jsx";
+import ProtectedRoute from "./components/ProtectedRoute.jsx";
+import Unauthorized from "./components/Unauthorized.jsx";
+import KYCRequired from "./components/KYCRequired.jsx";
+import app from "./firebase";
 
 const App = () => {
   const [darkMode, setDarkMode] = useState(false);
   const [language, setLanguage] = useState("en");
   const [translations, setTranslations] = useState({});
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [user, setUser] = useState(null);
 
   useEffect(() => {
     const savedLang = localStorage.getItem("appLanguage");
@@ -31,20 +33,6 @@ const App = () => {
 
     const savedDark = localStorage.getItem("darkMode") === "true";
     setDarkMode(savedDark);
-
-    const savedUser = (() => {
-      try {
-        const raw = localStorage.getItem("user");
-        return raw ? JSON.parse(raw) : null;
-      } catch {
-        return null;
-      }
-    })();
-
-    if (savedUser) {
-      setUser(savedUser);
-      setIsLoggedIn(true);
-    }
   }, []);
 
   useEffect(() => {
@@ -80,55 +68,88 @@ const App = () => {
     localStorage.setItem("appLanguage", language);
   }, [language]);
 
-  const handleLogin = (userData) => {
-    setIsLoggedIn(true);
-    setUser(userData);
-    localStorage.setItem("user", JSON.stringify(userData));
-  };
-
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setUser(null);
-    localStorage.removeItem("user");
-    localStorage.removeItem("token");
-  };
-
   return (
-    <Router>
-      <div className="min-h-screen bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-gray-900 dark:to-gray-800 transition-colors duration-500">
-        <Navbar
-          isLoggedIn={isLoggedIn}
-          user={user}
-          onLogout={handleLogout}
-          darkMode={darkMode}
-          setDarkMode={setDarkMode}
-          language={language}
-          setLanguage={setLanguage}
-          translations={translations}
-        />
+    <AuthProvider>
+      <Router>
+        <div className="min-h-screen bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-gray-900 dark:to-gray-800 transition-colors duration-500">
+          <Navbar
+            darkMode={darkMode}
+            setDarkMode={setDarkMode}
+            language={language}
+            setLanguage={setLanguage}
+            translations={translations}
+          />
 
-        <div className="max-w-7xl mx-auto py-6 text-gray-900 dark:text-gray-100 transition-colors duration-500">
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/government" element={<GovernmentDashboard />} />
-            <Route path="/government-enhanced" element={<EnhancedGovernmentDashboard />} />
-            <Route path="/transparency" element={<TransparencyDashboard />} />
-            <Route path="/monitoring" element={<RealTimeMonitoring />} />
-            <Route path="/kyc" element={<KYCVerification />} />
-            <Route path="/center" element={<CenterDashboard />} />
-            <Route path="/trainer" element={<TrainerDashboard />} />
-            <Route path="/farmer" element={<FarmerDashboard />} />
-            <Route path="/register" element={<RegistrationForms />} />
-            <Route path="/login" element={<Login onLogin={handleLogin} />} />
-            <Route path="/register-user" element={<Register />} />
-            <Route path="/viewer" element={<CertificateViewer />} />
-            <Route path="/profile" element={<Profile user={user} />} />
-          </Routes>
+          <div className="max-w-7xl mx-auto py-6 text-gray-900 dark:text-gray-100 transition-colors duration-500">
+            <Routes>
+              {/* Public routes */}
+              <Route path="/" element={<Home />} />
+              <Route path="/transparency" element={<TransparencyDashboard />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/register-user" element={<Register />} />
+              
+              {/* Protected routes */}
+              <Route path="/government" element={
+                <ProtectedRoute requiredRole="government">
+                  <GovernmentDashboard />
+                </ProtectedRoute>
+              } />
+              <Route path="/government-enhanced" element={
+                <ProtectedRoute requiredRole="government">
+                  <EnhancedGovernmentDashboard />
+                </ProtectedRoute>
+              } />
+              <Route path="/monitoring" element={
+                <ProtectedRoute requiredRole="government">
+                  <RealTimeMonitoring />
+                </ProtectedRoute>
+              } />
+              <Route path="/center" element={
+                <ProtectedRoute requiredRole="government">
+                  <CenterDashboard />
+                </ProtectedRoute>
+              } />
+              <Route path="/trainer" element={
+                <ProtectedRoute allowedRoles={['trainer', 'government']}>
+                  <TrainerDashboard />
+                </ProtectedRoute>
+              } />
+              <Route path="/farmer" element={
+                <ProtectedRoute allowedRoles={['farmer', 'trainer', 'government']}>
+                  <FarmerDashboard />
+                </ProtectedRoute>
+              } />
+              <Route path="/kyc" element={
+                <ProtectedRoute>
+                  <KYCVerification />
+                </ProtectedRoute>
+              } />
+              <Route path="/register" element={
+                <ProtectedRoute>
+                  <RegistrationForms />
+                </ProtectedRoute>
+              } />
+              <Route path="/viewer" element={
+                <ProtectedRoute>
+                  <CertificateViewer />
+                </ProtectedRoute>
+              } />
+              <Route path="/profile" element={
+                <ProtectedRoute>
+                  <Profile />
+                </ProtectedRoute>
+              } />
+              
+              {/* Error pages */}
+              <Route path="/unauthorized" element={<Unauthorized />} />
+              <Route path="/kyc-required" element={<KYCRequired />} />
+            </Routes>
+          </div>
+          
+          <Help />
         </div>
-        
-        {isLoggedIn && <Help />} 
-      </div>
-    </Router>
+      </Router>
+    </AuthProvider>
   );
 };
 

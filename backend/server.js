@@ -4,13 +4,18 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 require('dotenv').config();
 
 // New: Import Google Generative AI library
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-// Import crypto for encryption
-const crypto = require('crypto');
+// RazorPay configuration
+const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID;
+const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET;
 
 // Import services
 const KYCService = require('./services/kycService');
@@ -33,6 +38,39 @@ const monitoringService = new MonitoringService();
 
 app.use(cors());
 app.use(express.json());
+
+// Serve uploaded files
+app.use('/uploads', express.static('uploads'));
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = 'uploads/kyc';
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only JPEG, PNG, and PDF files are allowed.'));
+    }
+  }
+});
 
 // --- Database & Model Setup ---
 const mongoURI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/agrofuns_db';
@@ -679,6 +717,46 @@ app.get('/api/dashboard/transparency', auth, async (req, res) => {
 
 // ========== COMPREHENSIVE SERVICE INTEGRATION ==========
 
+// KYC Document Upload API
+app.post('/api/kyc/upload-document', auth, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const { type, userId } = req.body;
+    const fileUrl = `/uploads/kyc/${req.file.filename}`;
+
+    // Store document information in database
+    // This would typically be stored in a KYC documents collection
+    const documentInfo = {
+      userId: userId || req.user.id,
+      type: type,
+      filename: req.file.filename,
+      originalName: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size,
+      url: fileUrl,
+      uploadedAt: new Date()
+    };
+
+    // Log document upload
+    auditService.logUserAction(req.user.id, 'document_upload', 'kyc', {
+      documentType: type,
+      filename: req.file.filename
+    });
+
+    res.status(200).json({
+      success: true,
+      url: fileUrl,
+      documentInfo: documentInfo
+    });
+  } catch (error) {
+    console.error('Error uploading document:', error);
+    res.status(500).json({ error: 'Failed to upload document' });
+  }
+});
+
 // KYC Service APIs
 app.post('/api/kyc/submit', auth, async (req, res) => {
   try {
@@ -1265,6 +1343,114 @@ app.post('/api/mark-training-completed', auth, async (req, res) => {
   } catch (error) {
     console.error('Error marking training as complete:', error);
     res.status(500).json({ error: 'Failed to mark training as complete' });
+  }
+});
+
+// ========== PAYMENT INTEGRATION APIs ==========
+
+// RazorPay Order Creation
+app.post('/api/payment/create-razorpay-order', auth, async (req, res) => {
+  try {
+    const { amount, currency, purpose, userId } = req.body;
+    
+    const orderData = {
+      amount: amount,
+      currency: currency,
+      receipt: `receipt_${Date.now()}`,
+      notes: {
+        purpose: purpose,
+        userId: userId
+      }
+    };
+
+    // In a real implementation, you would call RazorPay API here
+    // For now, we'll simulate the order creation
+    const orderId = `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    res.status(200).json({
+      success: true,
+      orderId: orderId,
+      amount: amount,
+      currency: currency
+    });
+  } catch (error) {
+    console.error('Error creating RazorPay order:', error);
+    res.status(500).json({ error: 'Failed to create payment order' });
+  }
+});
+
+// RazorPay Payment Verification
+app.post('/api/payment/verify-razorpay', auth, async (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    
+    // In a real implementation, you would verify the signature with RazorPay
+    // For now, we'll simulate successful verification
+    const body = razorpay_order_id + "|" + razorpay_payment_id;
+    const expectedSignature = crypto
+      .createHmac("sha256", RAZORPAY_KEY_SECRET)
+      .update(body.toString())
+      .digest("hex");
+    
+    const isAuthentic = expectedSignature === razorpay_signature;
+    
+    if (isAuthentic) {
+      res.status(200).json({
+        success: true,
+        paymentId: razorpay_payment_id,
+        orderId: razorpay_order_id
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        error: 'Payment verification failed'
+      });
+    }
+  } catch (error) {
+    console.error('Error verifying RazorPay payment:', error);
+    res.status(500).json({ error: 'Failed to verify payment' });
+  }
+});
+
+// Record Payment
+app.post('/api/payment/record', auth, async (req, res) => {
+  try {
+    const { transactionId, method, amount, purpose, userId, timestamp } = req.body;
+    
+    // Log payment record
+    auditService.logUserAction(userId, 'payment_made', 'payment', {
+      transactionId,
+      method,
+      amount,
+      purpose,
+      timestamp
+    });
+    
+    res.status(200).json({
+      success: true,
+      message: 'Payment recorded successfully'
+    });
+  } catch (error) {
+    console.error('Error recording payment:', error);
+    res.status(500).json({ error: 'Failed to record payment' });
+  }
+});
+
+// Get Payment History
+app.get('/api/payment/history', auth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // In a real implementation, you would fetch from a payments collection
+    const paymentHistory = [];
+    
+    res.status(200).json({
+      success: true,
+      payments: paymentHistory
+    });
+  } catch (error) {
+    console.error('Error fetching payment history:', error);
+    res.status(500).json({ error: 'Failed to fetch payment history' });
   }
 });
 

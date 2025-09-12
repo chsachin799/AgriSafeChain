@@ -3,6 +3,7 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { useAuth } from '../contexts/AuthContext';
 import { app } from "../firebase"; // adjust path if needed
 
 // Use environment variables (create .env with these keys in project root)
@@ -19,7 +20,8 @@ const firebaseConfig = (() => {
   }
 })();
 
-const Profile = ({ user }) => {
+const Profile = () => {
+  const { user } = useAuth();
   const [profileData, setProfileData] = useState({
     name: user?.name || '',
     email: user?.email || '',
