@@ -36,6 +36,18 @@ const Navbar = ({ isLoggedIn, user, onLogout, darkMode, setDarkMode, language, s
           <Link to="/government" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
             {t("government")}
           </Link>
+          <Link to="/government-enhanced" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
+            Enhanced Gov
+          </Link>
+          <Link to="/transparency" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
+            Transparency
+          </Link>
+          <Link to="/monitoring" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
+            Monitoring
+          </Link>
+          <Link to="/kyc" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
+            KYC
+          </Link>
           <Link to="/center" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
             {t("center")}
           </Link>

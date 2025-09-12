@@ -2,6 +2,10 @@ import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import Home from "./components/Home.jsx";
 import GovernmentDashboard from "./components/GovernmentDashboard.jsx";
+import EnhancedGovernmentDashboard from "./components/EnhancedGovernmentDashboard.jsx";
+import TransparencyDashboard from "./components/TransparencyDashboard.jsx";
+import RealTimeMonitoring from "./components/RealTimeMonitoring.jsx";
+import KYCVerification from "./components/KYCVerification.jsx";
 import CenterDashboard from "./components/CenterDashboard.jsx";
 import TrainerDashboard from "./components/TrainerDashboard.jsx";
 import FarmerDashboard from "./components/FarmerDashboard.jsx";
@@ -11,7 +15,8 @@ import Register from "./components/Register.jsx";
 import CertificateViewer from "./components/CertificateViewer.jsx";
 import Navbar from "./components/Navbar.jsx";
 import Profile from "./components/Profile.jsx";
-import app from "./firebase";
+import Help from "./components/Help.jsx"; // 👈 New: Import the Help component
+import app from "./firebase"; // Assuming this is correct for your project
 
 const App = () => {
   const [darkMode, setDarkMode] = useState(false);
@@ -28,14 +33,13 @@ const App = () => {
     setDarkMode(savedDark);
 
     const savedUser = (() => {
-  try {
-    const raw = localStorage.getItem("user");
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-})();
-
+      try {
+        const raw = localStorage.getItem("user");
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    })();
 
     if (savedUser) {
       setUser(savedUser);
@@ -107,6 +111,10 @@ const App = () => {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/government" element={<GovernmentDashboard />} />
+            <Route path="/government-enhanced" element={<EnhancedGovernmentDashboard />} />
+            <Route path="/transparency" element={<TransparencyDashboard />} />
+            <Route path="/monitoring" element={<RealTimeMonitoring />} />
+            <Route path="/kyc" element={<KYCVerification />} />
             <Route path="/center" element={<CenterDashboard />} />
             <Route path="/trainer" element={<TrainerDashboard />} />
             <Route path="/farmer" element={<FarmerDashboard />} />
@@ -117,6 +125,8 @@ const App = () => {
             <Route path="/profile" element={<Profile user={user} />} />
           </Routes>
         </div>
+        
+        {isLoggedIn && <Help />} 
       </div>
     </Router>
   );
