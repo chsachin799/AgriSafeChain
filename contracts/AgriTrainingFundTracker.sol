@@ -13,7 +13,7 @@ contract AgriTrainingFundTracker {
     mapping(address => uint256) public kycTimestamp;
     
     // Consensus and Validation
-    mapping(bytes32 => mapping(address => bool)) public validators;
+    mapping(bytes32 => mapping(address => bool)) public transactionValidators;
     mapping(bytes32 => uint256) public validationCount;
     mapping(bytes32 => bool) public consensusReached;
     
@@ -197,16 +197,21 @@ contract AgriTrainingFundTracker {
             new address[](0),
             new address[](0),
             msg.sender,
-            true
+            true,
+            false,
+            false,
+            block.timestamp,
+            "",
+            ""
         );
-        emit CenterRegistered(centerAddress, name);
+        emit CenterRegistered(centerAddress, name, "");
     }
 
     // Activate or deactivate a center
     function setCenterStatus(address centerAddress, bool status) public onlyGov {
         require(centers[centerAddress].isRegistered, "Center not registered");
         centers[centerAddress].isActive = status;
-        emit CenterStatusChanged(centerAddress, status);
+        emit CenterStatusChanged(centerAddress, status, block.timestamp);
     }
 
     // Allocate funds to a center
@@ -220,7 +225,7 @@ contract AgriTrainingFundTracker {
         require(sent, "Failed to send Ether");
 
         centers[centerAddress].totalAllocated += amount;
-        emit FundAllocated(centerAddress, amount);
+        emit FundAllocated(centerAddress, amount, "");
     }
 
     // Report usage by training center
@@ -229,25 +234,25 @@ contract AgriTrainingFundTracker {
         require(amount <= centers[msg.sender].totalAllocated - centers[msg.sender].totalUsed, "Insufficient balance");
 
         centers[msg.sender].totalUsed += amount;
-        usageLogs[msg.sender].push(UsageReport(amount, purpose, block.timestamp));
+        usageLogs[msg.sender].push(UsageReport(amount, purpose, block.timestamp, keccak256(abi.encodePacked(amount, purpose, block.timestamp)), false, msg.sender, new string[](0)));
 
-        emit UsageReported(msg.sender, amount, purpose);
+        emit UsageReported(msg.sender, amount, purpose, keccak256(abi.encodePacked(amount, purpose, block.timestamp)));
     }
 
     // Register a trainer
     function registerTrainer(address trainerAddress, string memory name) public onlyRegisteredCenter {
         require(!trainers[trainerAddress].isRegistered, "Trainer already registered");
-        trainers[trainerAddress] = Trainer(name, msg.sender, true);
+        trainers[trainerAddress] = Trainer(name, msg.sender, true, false, block.timestamp, "", "", 0, new string[](0));
         centers[msg.sender].trainers.push(trainerAddress);
-        emit TrainerRegistered(trainerAddress, name, msg.sender);
+        emit TrainerRegistered(trainerAddress, name, msg.sender, "");
     }
 
     // Register a farmer
     function registerFarmer(address farmerAddress, string memory name) public onlyRegisteredCenter {
         require(!farmers[farmerAddress].isRegistered, "Farmer already registered");
-        farmers[farmerAddress] = Farmer(name, msg.sender, true, false, 0);
+        farmers[farmerAddress] = Farmer(name, msg.sender, true, false, 0, false, block.timestamp, "", "", new string[](0));
         centers[msg.sender].farmers.push(farmerAddress);
-        emit FarmerRegistered(farmerAddress, name, msg.sender);
+        emit FarmerRegistered(farmerAddress, name, msg.sender, "");
     }
 
     // Mark farmer training as completed
@@ -257,7 +262,7 @@ contract AgriTrainingFundTracker {
         require(trainers[msg.sender].center == farmers[farmerAddress].center, "Trainer and farmer must belong to same center");
 
         farmers[farmerAddress].trainingCompleted = true;
-        emit TrainingMarkedCompleted(farmerAddress);
+        emit TrainingMarkedCompleted(farmerAddress, block.timestamp);
     }
 
     // Mark attendance for a farmer
@@ -267,7 +272,7 @@ contract AgriTrainingFundTracker {
         require(trainers[msg.sender].center == farmers[farmerAddress].center, "Mismatch center");
 
         farmers[farmerAddress].attendanceCount++;
-        emit AttendanceMarked(farmerAddress, farmers[farmerAddress].attendanceCount);
+        emit AttendanceMarked(farmerAddress, farmers[farmerAddress].attendanceCount, block.timestamp);
     }
 
     // View usage logs
@@ -346,9 +351,9 @@ contract AgriTrainingFundTracker {
     function validateTransaction(bytes32 transactionHash) public {
         require(validators[msg.sender], "Not a validator");
         require(!processedTransactions[transactionHash], "Transaction already processed");
-        require(!validators[transactionHash][msg.sender], "Already validated by this validator");
+        require(!transactionValidators[transactionHash][msg.sender], "Already validated by this validator");
         
-        validators[transactionHash][msg.sender] = true;
+        transactionValidators[transactionHash][msg.sender] = true;
         validationCount[transactionHash]++;
         
         _addAuditEntry(msg.sender, "TRANSACTION_VALIDATED", transactionHash);

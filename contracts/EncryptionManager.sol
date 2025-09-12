@@ -71,7 +71,7 @@ contract EncryptionManager {
      * @param dataHash Hash of the data to retrieve
      * @return The encrypted data string
      */
-    function getEncryptedData(bytes32 dataHash) public view returns (string memory) {
+    function getEncryptedData(bytes32 dataHash) public returns (string memory) {
         require(
             dataOwners[dataHash] == msg.sender || 
             authorizedEncryptors[msg.sender] || 
