@@ -24,13 +24,8 @@ import app from "./firebase";
 
 const App = () => {
   const [darkMode, setDarkMode] = useState(false);
-  const [language, setLanguage] = useState("en");
-  const [translations, setTranslations] = useState({});
 
   useEffect(() => {
-    const savedLang = localStorage.getItem("appLanguage");
-    if (savedLang) setLanguage(savedLang);
-
     const savedDark = localStorage.getItem("darkMode") === "true";
     setDarkMode(savedDark);
   }, []);
@@ -40,34 +35,6 @@ const App = () => {
     localStorage.setItem("darkMode", darkMode.toString());
   }, [darkMode]);
 
-  useEffect(() => {
-    const dict = {
-      en: {
-        government: "Government",
-        center: "Training Center",
-        trainer: "Trainer",
-        farmer: "Farmer",
-        register: "Registration",
-      },
-      hi: {
-        government: "सरकार",
-        center: "प्रशिक्षण केंद्र",
-        trainer: "प्रशिक्षक",
-        farmer: "किसान",
-        register: "पंजीकरण",
-      },
-      ne: {
-        government: "सरकार",
-        center: "तालिम केन्द्र",
-        trainer: "प्रशिक्षक",
-        farmer: "किसान",
-        register: "दर्ता",
-      },
-    };
-    setTranslations(dict[language]);
-    localStorage.setItem("appLanguage", language);
-  }, [language]);
-
   return (
     <AuthProvider>
       <Router>
@@ -75,9 +42,6 @@ const App = () => {
           <Navbar
             darkMode={darkMode}
             setDarkMode={setDarkMode}
-            language={language}
-            setLanguage={setLanguage}
-            translations={translations}
           />
 
           <div className="max-w-7xl mx-auto py-6 text-gray-900 dark:text-gray-100 transition-colors duration-500">

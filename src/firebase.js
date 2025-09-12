@@ -4,24 +4,15 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
-// Get the raw environment variable value
-const firebaseConfigRaw = process.env.REACT_APP_FIREBASE_CONFIG;
-
-// Parse Firebase config from .env
-let firebaseConfig = {};
-try {
-  // Check if the variable is a non-empty string and not the literal "undefined"
-  if (firebaseConfigRaw && firebaseConfigRaw !== "undefined") {
-    firebaseConfig = JSON.parse(firebaseConfigRaw);
-  } else {
-    console.warn("REACT_APP_FIREBASE_CONFIG is not set or is invalid. Using default config.");
-    firebaseConfig = {};
-  }
-} catch (err) {
-  console.error("Invalid Firebase config JSON:", err);
-  // Fallback to an empty object to prevent app from crashing
-  firebaseConfig = {};
-}
+// Default Firebase config (placeholder - not used in this app)
+const firebaseConfig = {
+  apiKey: "placeholder",
+  authDomain: "placeholder",
+  projectId: "placeholder",
+  storageBucket: "placeholder",
+  messagingSenderId: "placeholder",
+  appId: "placeholder"
+};
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);

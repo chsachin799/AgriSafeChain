@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
-const Navbar = ({ darkMode, setDarkMode, language, setLanguage, translations }) => {
+const Navbar = ({ darkMode, setDarkMode }) => {
   const navigate = useNavigate();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const { isAuthenticated, user, logout, canAccessDashboard } = useAuth();
@@ -17,8 +17,6 @@ const Navbar = ({ darkMode, setDarkMode, language, setLanguage, translations }) 
   const toggleProfileMenu = () => {
     setShowProfileMenu(!showProfileMenu);
   };
-
-  const t = (key) => translations?.[key] || key;
 
 
   return (
@@ -43,7 +41,7 @@ const Navbar = ({ darkMode, setDarkMode, language, setLanguage, translations }) 
           {canAccessDashboard('government') && (
             <>
               <Link to="/government" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
-                {t("government")}
+                Government
               </Link>
               <Link to="/government-enhanced" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
                 Enhanced Gov
@@ -52,7 +50,7 @@ const Navbar = ({ darkMode, setDarkMode, language, setLanguage, translations }) 
                 Monitoring
               </Link>
               <Link to="/center" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
-                {t("center")}
+                Center
               </Link>
             </>
           )}
@@ -60,14 +58,14 @@ const Navbar = ({ darkMode, setDarkMode, language, setLanguage, translations }) 
           {/* Trainer and Government links */}
           {canAccessDashboard('trainer') && (
             <Link to="/trainer" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
-              {t("trainer")}
+              Trainer
             </Link>
           )}
           
           {/* Farmer, Trainer, and Government links */}
           {canAccessDashboard('farmer') && (
             <Link to="/farmer" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
-              {t("farmer")}
+              Farmer
             </Link>
           )}
           
@@ -138,16 +136,6 @@ const Navbar = ({ darkMode, setDarkMode, language, setLanguage, translations }) 
             {darkMode ? "☀️" : "🌙"}
           </button>
 
-          {/* Language Selector */}
-          <select
-            value={language}
-            onChange={(e) => setLanguage(e.target.value)}
-            className="ml-4 px-2 py-1 border rounded bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-          >
-            <option value="en">English 🇬🇧</option>
-            <option value="hi">हिंदी 🇮🇳</option>
-            <option value="ne">नेपाली 🇳🇵</option>
-          </select>
         </div>
       </div>
     </nav>

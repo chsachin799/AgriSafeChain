@@ -6,7 +6,7 @@ const Register = () => {
   const [formData, setFormData] = useState({
     email: '',
     password: '',
-    role: 'trainer',
+    role: 'farmer',
   });
   const navigate = useNavigate();
 
@@ -19,12 +19,13 @@ const Register = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await axios.post('http://localhost:3001/api/auth/register', formData);
+      const response = await axios.post('http://localhost:3001/api/auth/register', formData);
       alert('Registration successful! Please log in.');
       navigate('/login');
     } catch (err) {
-      alert('Registration failed. Please try again.');
-      console.error(err.response.data);
+      const errorMessage = err.response?.data?.msg || err.response?.data?.error || 'Registration failed. Please try again.';
+      alert(`Registration failed: ${errorMessage}`);
+      console.error('Registration error:', err.response?.data || err.message);
     }
   };
 
@@ -75,6 +76,7 @@ const Register = () => {
                 onChange={handleChange}
                 className="mt-1 w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white dark:border-gray-600"
               >
+                <option value="farmer">Farmer</option>
                 <option value="trainer">Trainer</option>
                 <option value="government">Government</option>
               </select>
