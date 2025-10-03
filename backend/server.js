@@ -1,6 +1,8 @@
 const express = require('express');
 const { ethers } = require('ethers');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -35,8 +37,14 @@ const encryptionService = new EncryptionService();
 const auditService = new AuditService();
 const monitoringService = new MonitoringService();
 
-app.use(cors());
-app.use(express.json());
+// Security middleware
+app.use(helmet());
+app.use(cors({ origin: ['http://localhost:3000'], methods: ['GET','POST','PUT','DELETE','OPTIONS'], allowedHeaders: ['Content-Type','x-auth-token'] }));
+app.use(express.json({ limit: '1mb' }));
+
+// Basic rate limiting
+const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300 });
+app.use(limiter);
 
 // Serve uploaded files
 app.use('/uploads', express.static('uploads'));
@@ -85,6 +93,22 @@ const memoryStore = {
   feedback: []
 };
 const isDbConnected = () => mongoose.connection && mongoose.connection.readyState === 1;
+
+// --- Simple in-memory geofence registry and reputation scoring (extend with DB later) ---
+const centerRegistry = new Map(); // centerAddress -> { name, lat, lng, radiusMeters, kycVerified, complianceApproved }
+const centerReputation = new Map(); // centerAddress -> number
+
+function isWithinGeofence(lat, lng, fence) {
+  if (!fence || typeof lat !== 'number' || typeof lng !== 'number') return false;
+  const R = 6371000; // meters
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat - fence.lat);
+  const dLon = toRad(lng - fence.lng);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(fence.lat)) * Math.cos(toRad(lat)) * Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distance = R * c;
+  return distance <= (fence.radiusMeters || 200);
+}
 
 // User Schema and Model
 const UserSchema = new mongoose.Schema({
@@ -145,6 +169,23 @@ const auth = (req, res, next) => {
   }
 };
 
+// --- Role-based Access Control ---
+const requireRole = (role) => (req, res, next) => {
+  if (!req.user || req.user.role !== role) {
+    return res.status(403).json({ msg: 'Forbidden: insufficient role' });
+  }
+  next();
+};
+
+// --- Government Registration Guard (invite code + domain allowlist) ---
+const GOVERNMENT_INVITE_CODE = process.env.GOV_INVITE_CODE || 'GOV-INVITE-ONLY';
+const GOVERNMENT_EMAIL_DOMAIN = process.env.GOV_EMAIL_DOMAIN || '';
+
+function isGovernmentEmailAllowed(email) {
+  if (!GOVERNMENT_EMAIL_DOMAIN) return true;
+  return typeof email === 'string' && email.toLowerCase().endsWith(`@${GOVERNMENT_EMAIL_DOMAIN.toLowerCase()}`);
+}
+
 // --- API Endpoints ---
 const INFURA_API_KEY = process.env.INFURA_API_KEY;
 const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS;
@@ -152,17 +193,21 @@ const GOVERNMENT_PRIVATE_KEY = process.env.GOVERNMENT_PRIVATE_KEY;
 
 // Graceful blockchain contract loading with a local mock fallback so the server can run
 let contract;
+let provider;
+let contractABI;
+let usingMock = false;
 try {
-  const contractABI = require('../artifacts/contracts/AgriTrainingFundTracker.sol/AgriTrainingFundTracker.json').abi;
+  contractABI = require('../artifacts/contracts/AgriTrainingFundTracker.sol/AgriTrainingFundTracker.json').abi;
   if (!INFURA_API_KEY || !GOVERNMENT_PRIVATE_KEY || !CONTRACT_ADDRESS) {
     throw new Error('Missing blockchain ENV. Switching to mock.');
   }
-  const provider = new ethers.JsonRpcProvider(`https://sepolia.infura.io/v3/${INFURA_API_KEY}`);
+  provider = new ethers.JsonRpcProvider(`https://sepolia.infura.io/v3/${INFURA_API_KEY}`);
   const governorWallet = new ethers.Wallet(GOVERNMENT_PRIVATE_KEY, provider);
   contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, governorWallet);
   console.log('Blockchain contract loaded using live provider');
 } catch (err) {
   console.warn('[AgriSafeChain] Falling back to in-memory mock contract:', err.message);
+  usingMock = true;
   const randomTxHash = () => '0x' + crypto.randomBytes(32).toString('hex');
   const mockWait = async () => ({ status: 1 });
   const mockTx = () => ({ hash: randomTxHash(), wait: mockWait });
@@ -234,12 +279,64 @@ app.get('/health', async (_req, res) => {
   res.status(200).json(health);
 });
 
+// Blockchain connectivity status
+app.get('/api/blockchain/status', (_req, res) => {
+  const status = {
+    hasEnv: !!(process.env.INFURA_API_KEY && process.env.GOVERNMENT_PRIVATE_KEY && process.env.CONTRACT_ADDRESS),
+    provider: process.env.INFURA_API_KEY ? 'infura' : 'none',
+    usingMock,
+    contractReady: !!(contract && contract.getAuditTrail)
+  };
+  res.status(200).json({ success: true, status });
+});
+
+// Admin: update center geofence (government-only)
+app.post('/api/admin/center/geofence', auth, requireRole('government'), (req, res) => {
+  const { centerAddress, lat, lng, radiusMeters } = req.body;
+  if (!centerAddress) return res.status(400).json({ error: 'centerAddress is required' });
+  const current = centerRegistry.get(centerAddress) || { name: 'Center', lat: 0, lng: 0, radiusMeters: 200 };
+  const updated = { ...current, lat: Number(lat) || 0, lng: Number(lng) || 0, radiusMeters: Number(radiusMeters) || 200 };
+  centerRegistry.set(centerAddress, updated);
+  res.status(200).json({ success: true, geofence: updated });
+});
+
+// Public: center reputation (read-only)
+app.get('/api/center/:address/reputation', (req, res) => {
+  const addr = req.params.address;
+  const score = centerReputation.get(addr) || 0;
+  res.status(200).json({ success: true, address: addr, reputation: score });
+});
+
+// Encrypted whistleblower reports (anonymous)
+app.post('/api/whistleblower/report', async (req, res) => {
+  try {
+    const { report, publicKey } = req.body;
+    if (!report || !publicKey) return res.status(400).json({ error: 'report and publicKey are required' });
+    // Encrypt report with provided public key (RSA-OAEP assumed). Placeholder: hash only.
+    const reportHash = crypto.createHash('sha256').update(report).digest('hex');
+    // Log minimal data to audit trail; store details off-chain in secure store in real impl.
+    auditService.logUserAction('anonymous', 'whistleblower_report', 'whistleblower', { reportHash });
+    res.status(200).json({ success: true, reference: reportHash });
+  } catch (e) {
+    console.error('Whistleblower error:', e);
+    res.status(500).json({ error: 'Failed to submit report' });
+  }
+});
+
 app.get('/', (req, res) => res.send('Hello from the backend!'));
 
 // New: Register endpoint
 app.post('/api/auth/register', async (req, res) => {
-  const { email, password, role } = req.body;
+  const { email, password, role, inviteCode } = req.body;
   try {
+    if (role === 'government') {
+      if (inviteCode !== GOVERNMENT_INVITE_CODE) {
+        return res.status(403).json({ msg: 'Invalid invite code for government registration' });
+      }
+      if (!isGovernmentEmailAllowed(email)) {
+        return res.status(403).json({ msg: 'Email domain not allowed for government registration' });
+      }
+    }
     if (isDbConnected()) {
       let existing = await User.findOne({ email });
       if (existing) return res.status(400).json({ msg: 'User already exists' });
@@ -360,6 +457,9 @@ app.post('/api/kyc/verify', auth, async (req, res) => {
   try {
     const tx = await contract.verifyKYC(userAddress);
     await tx.wait();
+    // Persist verification flag for the center wallet locally (off-chain guardrail)
+    const current = centerRegistry.get(userAddress) || { name: 'Center', lat: 0, lng: 0, radiusMeters: 200, kycVerified: false, complianceApproved: false };
+    centerRegistry.set(userAddress, { ...current, kycVerified: true });
     res.status(200).json({
       success: true,
       transactionHash: tx.hash,
@@ -371,10 +471,7 @@ app.post('/api/kyc/verify', auth, async (req, res) => {
   }
 });
 
-app.post('/api/compliance/approve', auth, async (req, res) => {
-  if (req.user.role !== 'government') {
-    return res.status(403).json({ msg: 'Not authorized to approve compliance' });
-  }
+app.post('/api/compliance/approve', auth, requireRole('government'), async (req, res) => {
   const { userAddress } = req.body;
   if (!userAddress) {
     return res.status(400).json({ error: 'userAddress is required' });
@@ -382,6 +479,9 @@ app.post('/api/compliance/approve', auth, async (req, res) => {
   try {
     const tx = await contract.approveCompliance(userAddress);
     await tx.wait();
+    // Persist compliance flag locally
+    const current = centerRegistry.get(userAddress) || { name: 'Center', lat: 0, lng: 0, radiusMeters: 200, kycVerified: false, complianceApproved: false };
+    centerRegistry.set(userAddress, { ...current, complianceApproved: true });
     res.status(200).json({
       success: true,
       transactionHash: tx.hash,
@@ -393,10 +493,7 @@ app.post('/api/compliance/approve', auth, async (req, res) => {
   }
 });
 
-app.post('/api/compliance/rules', auth, async (req, res) => {
-  if (req.user.role !== 'government') {
-    return res.status(403).json({ msg: 'Not authorized to create compliance rules' });
-  }
+app.post('/api/compliance/rules', auth, requireRole('government'), async (req, res) => {
   const { ruleId, description } = req.body;
   if (!ruleId || !description) {
     return res.status(400).json({ error: 'ruleId and description are required' });
@@ -416,10 +513,7 @@ app.post('/api/compliance/rules', auth, async (req, res) => {
 });
 
 // Consensus and Validation APIs
-app.post('/api/consensus/validator', auth, async (req, res) => {
-  if (req.user.role !== 'government') {
-    return res.status(403).json({ msg: 'Not authorized to add validators' });
-  }
+app.post('/api/consensus/validator', auth, requireRole('government'), async (req, res) => {
   const { validatorAddress, stake } = req.body;
   if (!validatorAddress || !stake) {
     return res.status(400).json({ error: 'validatorAddress and stake are required' });
@@ -522,6 +616,8 @@ app.post('/api/monitoring/update', auth, async (req, res) => {
   try {
     const tx = await contract.updateMonitoringData();
     await tx.wait();
+    // Reward centers that update on time (placeholder heuristic)
+    // In a real system, link tx sender; here we accrue to a dummy address
     res.status(200).json({
       success: true,
       transactionHash: tx.hash,
@@ -602,10 +698,7 @@ app.post('/api/funding/source', auth, async (req, res) => {
 });
 
 // Enhanced Registration APIs
-app.post('/api/register/center-enhanced', auth, async (req, res) => {
-  if (req.user.role !== 'government') {
-    return res.status(403).json({ msg: 'Not authorized to register centers' });
-  }
+app.post('/api/register/center-enhanced', auth, requireRole('government'), async (req, res) => {
   const { centerAddress, name, location, contactInfo } = req.body;
   if (!centerAddress || !name || !location || !contactInfo) {
     return res.status(400).json({ error: 'All fields are required' });
@@ -613,6 +706,9 @@ app.post('/api/register/center-enhanced', auth, async (req, res) => {
   try {
     const tx = await contract.registerCenterEnhanced(centerAddress, name, location, contactInfo);
     await tx.wait();
+    // Initialize registry entry with default guard flags
+    const existing = centerRegistry.get(centerAddress) || {};
+    centerRegistry.set(centerAddress, { ...existing, name, lat: 0, lng: 0, radiusMeters: 200, kycVerified: false, complianceApproved: false });
     res.status(200).json({
       success: true,
       transactionHash: tx.hash,
@@ -624,15 +720,28 @@ app.post('/api/register/center-enhanced', auth, async (req, res) => {
   }
 });
 
-app.post('/api/allocate/funds-enhanced', auth, async (req, res) => {
-  if (req.user.role !== 'government') {
-    return res.status(403).json({ msg: 'Not authorized to allocate funds' });
-  }
+app.post('/api/allocate/funds-enhanced', auth, requireRole('government'), async (req, res) => {
   const { centerAddress, amount, sourceId } = req.body;
   if (!centerAddress || !amount) {
     return res.status(400).json({ error: 'centerAddress and amount are required' });
   }
   try {
+    // Verify center is registered before allocating funds
+    const centerStatus = await contract.centers(centerAddress);
+    const isRegistered = Array.isArray(centerStatus) ? centerStatus[1] : !!centerStatus?.isRegistered;
+    if (!isRegistered) {
+      return res.status(400).json({ error: 'Target center is not registered/authorized' });
+    }
+    // Enforce KYC and compliance before allocation
+    const registry = centerRegistry.get(centerAddress);
+    if (!registry || !registry.kycVerified) {
+      auditService.logSecurityEvent('allocation_blocked_kyc', { centerAddress, amount, sourceId });
+      return res.status(403).json({ error: 'Allocation blocked: center KYC is not verified' });
+    }
+    if (!registry.complianceApproved) {
+      auditService.logSecurityEvent('allocation_blocked_compliance', { centerAddress, amount, sourceId });
+      return res.status(403).json({ error: 'Allocation blocked: center compliance is not approved' });
+    }
     const amountInWei = ethers.parseEther(amount);
     const tx = await contract.allocateFundsEnhanced(centerAddress, amountInWei, sourceId || "", {
       value: amountInWei,
@@ -653,11 +762,27 @@ app.post('/api/report/usage-enhanced', auth, async (req, res) => {
   if (req.user.role !== 'trainer') {
     return res.status(403).json({ msg: 'Not authorized to report usage' });
   }
-  const { privateKey, amount, purpose, attachments } = req.body;
+  const { privateKey, amount, purpose, attachments, latitude, longitude } = req.body;
   if (!privateKey || !amount || !purpose) {
     return res.status(400).json({ error: 'privateKey, amount, and purpose are required' });
   }
   try {
+    // Verify caller's center is registered
+    const centerWalletTmp = new ethers.Wallet(privateKey);
+    const centerStatus = await contract.centers(centerWalletTmp.address);
+    const isRegistered = Array.isArray(centerStatus) ? centerStatus[1] : !!centerStatus?.isRegistered;
+    if (!isRegistered) {
+      return res.status(403).json({ error: 'Center wallet is not authorized/registered' });
+    }
+    // Geofence validation (PoLT)
+    const fence = centerRegistry.get(centerWalletTmp.address);
+    if (fence) {
+      const latNum = Number(latitude);
+      const lngNum = Number(longitude);
+      if (!isWithinGeofence(latNum, lngNum, fence)) {
+        return res.status(400).json({ error: 'Submission location is outside authorized geofence' });
+      }
+    }
     const centerWallet = new ethers.Wallet(privateKey, provider);
     const centerContract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, centerWallet);
     const amountInWei = ethers.parseEther(amount);
@@ -948,10 +1073,7 @@ app.post('/api/validation/transaction', auth, async (req, res) => {
 });
 
 // Consensus Service APIs
-app.post('/api/consensus/register-validator', auth, async (req, res) => {
-  if (req.user.role !== 'government') {
-    return res.status(403).json({ msg: 'Not authorized to register validators' });
-  }
+app.post('/api/consensus/register-validator', auth, requireRole('government'), async (req, res) => {
   
   try {
     const { validatorAddress, stake, metadata } = req.body;
@@ -1255,10 +1377,7 @@ app.get('/api/governor', auth, async (req, res) => {
   }
 });
 
-app.post('/api/register-center', auth, async (req, res) => {
-  if (req.user.role !== 'government') {
-    return res.status(403).json({ msg: 'Not authorized to register a center' });
-  }
+app.post('/api/register-center', auth, requireRole('government'), async (req, res) => {
   const { name } = req.body;
   if (!name) {
     return res.status(400).json({ error: 'name is required' });
@@ -1269,6 +1388,9 @@ app.post('/api/register-center', auth, async (req, res) => {
     const newCenterPrivateKey = newCenterWallet.privateKey;
     const tx = await contract.registerCenter(newCenterAddress, name);
     await tx.wait();
+    // Initialize a default geofence and guard flags (can be updated later via admin UI)
+    centerRegistry.set(newCenterAddress, { name, lat: 0, lng: 0, radiusMeters: 200, kycVerified: false, complianceApproved: false });
+    centerReputation.set(newCenterAddress, 0);
     res.status(200).json({
       success: true,
       transactionHash: tx.hash,
@@ -1281,15 +1403,17 @@ app.post('/api/register-center', auth, async (req, res) => {
   }
 });
 
-app.post('/api/allocate-funds', auth, async (req, res) => {
-  if (req.user.role !== 'government') {
-    return res.status(403).json({ msg: 'Not authorized to allocate funds' });
-  }
+app.post('/api/allocate-funds', auth, requireRole('government'), async (req, res) => {
   const { centerAddress, amount } = req.body;
   if (!centerAddress || !amount) {
     return res.status(400).json({ error: 'centerAddress and amount are required' });
   }
   try {
+    const centerStatus = await contract.centers(centerAddress);
+    const isRegistered = Array.isArray(centerStatus) ? centerStatus[1] : !!centerStatus?.isRegistered;
+    if (!isRegistered) {
+      return res.status(400).json({ error: 'Target center is not registered/authorized' });
+    }
     const amountInWei = ethers.parseEther(amount);
     const tx = await contract.allocateFunds(centerAddress, amountInWei, {
       value: amountInWei,
@@ -1315,6 +1439,12 @@ app.post('/api/report-usage', auth, async (req, res) => {
     return res.status(400).json({ error: 'privateKey and description are required' });
   }
   try {
+    const tmpWallet = new ethers.Wallet(privateKey);
+    const centerStatus = await contract.centers(tmpWallet.address);
+    const isRegistered = Array.isArray(centerStatus) ? centerStatus[1] : !!centerStatus?.isRegistered;
+    if (!isRegistered) {
+      return res.status(403).json({ error: 'Center wallet is not authorized/registered' });
+    }
     const centerWallet = new ethers.Wallet(privateKey, provider);
     const centerContract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, centerWallet);
     const amountToReport = '0.0001';

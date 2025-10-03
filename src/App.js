@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import Home from "./components/Home.jsx";
-import GovernmentDashboard from "./components/GovernmentDashboard.jsx";
 import EnhancedGovernmentDashboard from "./components/EnhancedGovernmentDashboard.jsx";
 import TransparencyDashboard from "./components/TransparencyDashboard.jsx";
 import RealTimeMonitoring from "./components/RealTimeMonitoring.jsx";
@@ -54,11 +53,6 @@ const App = () => {
               
               {/* Protected routes */}
               <Route path="/government" element={
-                <ProtectedRoute requiredRole="government">
-                  <GovernmentDashboard />
-                </ProtectedRoute>
-              } />
-              <Route path="/government-enhanced" element={
                 <ProtectedRoute requiredRole="government">
                   <EnhancedGovernmentDashboard />
                 </ProtectedRoute>
