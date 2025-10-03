@@ -25,6 +25,7 @@
     "eject": "react-scripts eject",
     "tailwind-init": "tailwindcss init -p",
     "dev": "concurrently \"npm run backend\" \"npm start\"",
+    "start:all": "concurrently \"npm run backend\" \"npm start\"",
     "backend": "cd backend && npm start",
     "install-all": "npm install && cd backend && npm install"
   },

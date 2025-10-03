@@ -79,6 +79,13 @@ mongoose
   .then(() => console.log('MongoDB Connected...'))
   .catch((err) => console.error('MongoDB connection error:', err));
 
+// Simple in-memory stores used when MongoDB isn't available
+const memoryStore = {
+  users: new Map(), // id -> { id, email, role, passwordHash, date }
+  feedback: []
+};
+const isDbConnected = () => mongoose.connection && mongoose.connection.readyState === 1;
+
 // User Schema and Model
 const UserSchema = new mongoose.Schema({
   email: {
@@ -143,39 +150,124 @@ const INFURA_API_KEY = process.env.INFURA_API_KEY;
 const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS;
 const GOVERNMENT_PRIVATE_KEY = process.env.GOVERNMENT_PRIVATE_KEY;
 
-const contractABI =
-  require('../artifacts/contracts/AgriTrainingFundTracker.sol/AgriTrainingFundTracker.json').abi;
+// Graceful blockchain contract loading with a local mock fallback so the server can run
+let contract;
+try {
+  const contractABI = require('../artifacts/contracts/AgriTrainingFundTracker.sol/AgriTrainingFundTracker.json').abi;
+  if (!INFURA_API_KEY || !GOVERNMENT_PRIVATE_KEY || !CONTRACT_ADDRESS) {
+    throw new Error('Missing blockchain ENV. Switching to mock.');
+  }
+  const provider = new ethers.JsonRpcProvider(`https://sepolia.infura.io/v3/${INFURA_API_KEY}`);
+  const governorWallet = new ethers.Wallet(GOVERNMENT_PRIVATE_KEY, provider);
+  contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, governorWallet);
+  console.log('Blockchain contract loaded using live provider');
+} catch (err) {
+  console.warn('[AgriSafeChain] Falling back to in-memory mock contract:', err.message);
+  const randomTxHash = () => '0x' + crypto.randomBytes(32).toString('hex');
+  const mockWait = async () => ({ status: 1 });
+  const mockTx = () => ({ hash: randomTxHash(), wait: mockWait });
 
-const provider = new ethers.JsonRpcProvider(`https://sepolia.infura.io/v3/${INFURA_API_KEY}`);
-const governorWallet = new ethers.Wallet(GOVERNMENT_PRIVATE_KEY, provider);
-const contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, governorWallet);
+  let monitoringState = {
+    totalTransactions: 0n,
+    totalFundsAllocated: ethers.parseEther('0'),
+    totalFundsUsed: ethers.parseEther('0'),
+    activeCenters: 0n,
+    activeFarmers: 0n,
+    activeTrainers: 0n,
+    lastUpdate: BigInt(Math.floor(Date.now() / 1000))
+  };
+  const centers = new Map();
+  const auditTrail = [];
+  const pushAudit = (actor, action, dataHash = randomTxHash()) => {
+    auditTrail.unshift({ actor, action, timestamp: BigInt(Math.floor(Date.now() / 1000)), dataHash });
+  };
 
-app.get('/', (req, res) => {
-  res.send('Hello from the backend!');
+  contract = {
+    government: async () => '0x000000000000000000000000000000000000dEaD',
+    verifyKYC: async () => { pushAudit('gov', 'verifyKYC'); return mockTx(); },
+    approveCompliance: async () => { pushAudit('gov', 'approveCompliance'); return mockTx(); },
+    createComplianceRule: async () => { pushAudit('gov', 'createComplianceRule'); return mockTx(); },
+    addValidator: async () => { pushAudit('gov', 'addValidator'); return mockTx(); },
+    validateTransaction: async () => { pushAudit('validator', 'validateTransaction'); return mockTx(); },
+    getAuditTrail: async (startIndex = 0, count = 50) => auditTrail.slice(Number(startIndex), Number(startIndex) + Number(count)),
+    addEncryptedAuditEntry: async (actor, action, dataHash) => { pushAudit(actor, action, dataHash); return mockTx(); },
+    monitoringData: async () => monitoringState,
+    updateMonitoringData: async () => {
+      monitoringState = {
+        ...monitoringState,
+        totalTransactions: monitoringState.totalTransactions + 1n,
+        lastUpdate: BigInt(Math.floor(Date.now() / 1000))
+      };
+      return mockTx();
+    },
+    detectAnomaly: async () => { pushAudit('system', 'anomaly'); return mockTx(); },
+    validateData: async () => true,
+    addFundingSource: async () => { pushAudit('gov', 'addFundingSource'); return mockTx(); },
+    registerCenterEnhanced: async (addr, name) => { centers.set(addr, { name, isRegistered: true, balance: ethers.parseEther('0'), used: ethers.parseEther('0') }); pushAudit('gov', 'registerCenterEnhanced'); return mockTx(); },
+    allocateFundsEnhanced: async (addr, amountWei) => {
+      const c = centers.get(addr) || { name: 'Center', isRegistered: true, balance: ethers.parseEther('0'), used: ethers.parseEther('0') };
+      c.balance = (c.balance || ethers.parseEther('0')) + amountWei;
+      centers.set(addr, c);
+      monitoringState.totalFundsAllocated = monitoringState.totalFundsAllocated + amountWei;
+      pushAudit('gov', 'allocateFundsEnhanced');
+      return mockTx();
+    },
+    reportUsageEnhanced: async (amountWei) => { monitoringState.totalFundsUsed = monitoringState.totalFundsUsed + amountWei; pushAudit('center', 'reportUsageEnhanced'); return mockTx(); },
+    registerCenter: async (addr, name) => { centers.set(addr, { name, isRegistered: true, balance: ethers.parseEther('0'), used: ethers.parseEther('0') }); pushAudit('gov', 'registerCenter'); return mockTx(); },
+    allocateFunds: async (addr, amountWei) => { const c = centers.get(addr) || { name: 'Center', isRegistered: true, balance: ethers.parseEther('0'), used: ethers.parseEther('0') }; c.balance = (c.balance || ethers.parseEther('0')) + amountWei; centers.set(addr, c); monitoringState.totalFundsAllocated = monitoringState.totalFundsAllocated + amountWei; pushAudit('gov', 'allocateFunds'); return mockTx(); },
+    reportUsage: async (amountWei) => { monitoringState.totalFundsUsed = monitoringState.totalFundsUsed + amountWei; pushAudit('center', 'reportUsage'); return mockTx(); },
+    centers: async (addr) => {
+      const c = centers.get(addr) || { name: '', isRegistered: false, balance: ethers.parseEther('0'), used: ethers.parseEther('0') };
+      return [c.name, c.isRegistered, c.balance, c.used];
+    }
+  };
+}
+
+// Public health endpoint
+app.get('/health', async (_req, res) => {
+  const health = {
+    ok: true,
+    timestamp: new Date().toISOString(),
+    db: isDbConnected() ? 'connected' : 'memory',
+    blockchain: contract && contract.getAuditTrail ? 'ready' : 'mock'
+  };
+  res.status(200).json(health);
 });
+
+app.get('/', (req, res) => res.send('Hello from the backend!'));
 
 // New: Register endpoint
 app.post('/api/auth/register', async (req, res) => {
   const { email, password, role } = req.body;
   try {
-    let user = await User.findOne({ email });
-    if (user) {
-      return res.status(400).json({ msg: 'User already exists' });
-    }
-    user = new User({ email, password, role });
-    const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(password, salt);
-    await user.save();
-    const payload = { user: { id: user.id, role: user.role } };
-    jwt.sign(
-      payload,
-      process.env.JWT_SECRET || 'your_jwt_secret',
-      { expiresIn: '1h' },
-      (err, token) => {
+    if (isDbConnected()) {
+      let existing = await User.findOne({ email });
+      if (existing) return res.status(400).json({ msg: 'User already exists' });
+      let user = new User({ email, password, role });
+      const salt = await bcrypt.genSalt(10);
+      user.password = await bcrypt.hash(password, salt);
+      await user.save();
+      const payload = { user: { id: user.id, role: user.role } };
+      jwt.sign(payload, process.env.JWT_SECRET || 'your_jwt_secret', { expiresIn: '1h' }, (err, token) => {
         if (err) throw err;
-        res.json({ token, role: user.role });
+        res.json({ token, role: user.role, user: { id: user.id, email: user.email, role: user.role } });
+      });
+    } else {
+      // Memory fallback
+      if ([...memoryStore.users.values()].some(u => u.email === email)) {
+        return res.status(400).json({ msg: 'User already exists' });
       }
-    );
+      const id = crypto.randomUUID();
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash(password, salt);
+      const user = { id, email, role, passwordHash, date: new Date() };
+      memoryStore.users.set(id, user);
+      const payload = { user: { id, role } };
+      jwt.sign(payload, process.env.JWT_SECRET || 'your_jwt_secret', { expiresIn: '1h' }, (err, token) => {
+        if (err) throw err;
+        res.json({ token, role, user: { id, email, role } });
+      });
+    }
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server error');
@@ -186,24 +278,28 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
-    let user = await User.findOne({ email });
-    if (!user) {
-      return res.status(400).json({ msg: 'Invalid Credentials' });
-    }
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ msg: 'Invalid Credentials' });
-    }
-    const payload = { user: { id: user.id, role: user.role } };
-    jwt.sign(
-      payload,
-      process.env.JWT_SECRET || 'your_jwt_secret',
-      { expiresIn: '1h' },
-      (err, token) => {
+    if (isDbConnected()) {
+      let user = await User.findOne({ email });
+      if (!user) return res.status(400).json({ msg: 'Invalid Credentials' });
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) return res.status(400).json({ msg: 'Invalid Credentials' });
+      const payload = { user: { id: user.id, role: user.role } };
+      jwt.sign(payload, process.env.JWT_SECRET || 'your_jwt_secret', { expiresIn: '1h' }, (err, token) => {
         if (err) throw err;
-        res.json({ token, role: user.role });
-      }
-    );
+        res.json({ token, role: user.role, user: { id: user.id, email: user.email, role: user.role } });
+      });
+    } else {
+      // Memory fallback
+      const user = [...memoryStore.users.values()].find(u => u.email === email);
+      if (!user) return res.status(400).json({ msg: 'Invalid Credentials' });
+      const isMatch = await bcrypt.compare(password, user.passwordHash);
+      if (!isMatch) return res.status(400).json({ msg: 'Invalid Credentials' });
+      const payload = { user: { id: user.id, role: user.role } };
+      jwt.sign(payload, process.env.JWT_SECRET || 'your_jwt_secret', { expiresIn: '1h' }, (err, token) => {
+        if (err) throw err;
+        res.json({ token, role: user.role, user: { id: user.id, email: user.email, role: user.role } });
+      });
+    }
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server error');
@@ -216,18 +312,16 @@ app.post('/api/feedback', auth, async (req, res) => {
   const { id, role } = req.user;
 
   try {
-    const user = await User.findById(id).select('-password');
-    if (!user) {
-      return res.status(404).json({ msg: 'User not found' });
+    if (isDbConnected()) {
+      const user = await User.findById(id).select('-password');
+      if (!user) return res.status(404).json({ msg: 'User not found' });
+      const newFeedback = new Feedback({ email: user.email, role, message });
+      await newFeedback.save();
+    } else {
+      const user = memoryStore.users.get(id);
+      if (!user) return res.status(404).json({ msg: 'User not found' });
+      memoryStore.feedback.push({ id: crypto.randomUUID(), email: user.email, role, message, date: new Date() });
     }
-
-    const newFeedback = new Feedback({
-      email: user.email,
-      role: role,
-      message: message,
-    });
-
-    await newFeedback.save();
     res.status(201).json({ msg: 'Feedback submitted successfully!' });
   } catch (err) {
     console.error(err.message);
@@ -238,7 +332,11 @@ app.post('/api/feedback', auth, async (req, res) => {
 // New: Get all feedback endpoint (protected)
 app.get('/api/feedback', auth, async (req, res) => {
   try {
-    const allFeedback = await Feedback.find().sort({ date: -1 });
+    if (isDbConnected()) {
+      const allFeedback = await Feedback.find().sort({ date: -1 });
+      return res.status(200).json(allFeedback);
+    }
+    const allFeedback = memoryStore.feedback.sort((a, b) => new Date(b.date) - new Date(a.date));
     res.status(200).json(allFeedback);
   } catch (err) {
     console.error(err.message);

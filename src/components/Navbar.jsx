@@ -8,6 +8,22 @@ const Navbar = ({ darkMode, setDarkMode }) => {
   const navigate = useNavigate();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const { isAuthenticated, user, logout, canAccessDashboard } = useAuth();
+  const [backendOk, setBackendOk] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const ping = async () => {
+      try {
+        const res = await fetch('http://localhost:3001/health');
+        if (!cancelled) setBackendOk(res.ok);
+      } catch {
+        if (!cancelled) setBackendOk(false);
+      }
+    };
+    ping();
+    const id = setInterval(ping, 8000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -29,6 +45,12 @@ const Navbar = ({ darkMode, setDarkMode }) => {
         >
           AgriSafeChain
         </Link>
+
+        {/* Backend status */}
+        <div className={`hidden md:flex items-center text-sm ${backendOk ? 'text-green-600' : 'text-red-600'}`}>
+          <span className={`inline-block w-2 h-2 rounded-full mr-2 ${backendOk ? 'bg-green-600' : 'bg-red-600'}`}></span>
+          {backendOk ? 'Backend online' : 'Backend offline'}
+        </div>
 
         {/* Links - Role-based navigation */}
         <div className="space-x-4 flex items-center">

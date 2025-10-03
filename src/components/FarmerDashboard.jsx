@@ -14,7 +14,7 @@ const FarmerDashboard = () => {
   });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
-  const [showMessage, setShowMessage] = useState(false);
+  const [showToast, setShowToast] = useState(false);
   const [trainingProgress, setTrainingProgress] = useState(0);
   const [recentActivities, setRecentActivities] = useState([]);
 
@@ -46,16 +46,16 @@ const FarmerDashboard = () => {
         { id: 3, action: 'Registered for training program', date: '2024-01-10', status: 'completed' }
       ]);
     } catch (error) {
-      showMessage('Error loading farmer data');
+      showToastMessage('Error loading farmer data');
     } finally {
       setLoading(false);
     }
   };
 
-  const showMessage = (msg) => {
+  const showToastMessage = (msg) => {
     setMessage(msg);
-    setShowMessage(true);
-    setTimeout(() => setShowMessage(false), 3000);
+    setShowToast(true);
+    setTimeout(() => setShowToast(false), 3000);
   };
 
   const handleKYCSubmission = async () => {
@@ -64,9 +64,9 @@ const FarmerDashboard = () => {
       // Simulate KYC submission
       await new Promise(resolve => setTimeout(resolve, 1000));
       setFarmerData(prev => ({ ...prev, kycVerified: true }));
-      showMessage('KYC documents submitted successfully!');
+      showToastMessage('KYC documents submitted successfully!');
     } catch (error) {
-      showMessage('Error submitting KYC documents');
+      showToastMessage('Error submitting KYC documents');
     } finally {
       setLoading(false);
     }
@@ -77,16 +77,16 @@ const FarmerDashboard = () => {
     try {
       // Simulate training enrollment
       await new Promise(resolve => setTimeout(resolve, 1000));
-      showMessage('Successfully enrolled in training program!');
+      showToastMessage('Successfully enrolled in training program!');
     } catch (error) {
-      showMessage('Error enrolling in training program');
+      showToastMessage('Error enrolling in training program');
     } finally {
       setLoading(false);
     }
   };
 
   const handleCertificateDownload = (certificateId) => {
-    showMessage(`Downloading certificate ${certificateId}...`);
+    showToastMessage(`Downloading certificate ${certificateId}...`);
   };
 
   if (loading && !farmerData.name) {
@@ -344,7 +344,7 @@ const FarmerDashboard = () => {
       </div>
 
       {/* Message Toast */}
-      {showMessage && (
+      {showToast && (
         <div className="fixed bottom-4 right-4 bg-teal-600 text-white px-6 py-3 rounded-lg shadow-lg z-50">
           {message}
         </div>
