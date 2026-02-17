@@ -8,6 +8,22 @@ const Navbar = ({ darkMode, setDarkMode }) => {
   const navigate = useNavigate();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const { isAuthenticated, user, logout, canAccessDashboard } = useAuth();
+  const [backendOk, setBackendOk] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const ping = async () => {
+      try {
+        const res = await fetch('http://localhost:3001/health');
+        if (!cancelled) setBackendOk(res.ok);
+      } catch {
+        if (!cancelled) setBackendOk(false);
+      }
+    };
+    ping();
+    const id = setInterval(ping, 8000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -30,6 +46,12 @@ const Navbar = ({ darkMode, setDarkMode }) => {
           AgriSafeChain
         </Link>
 
+        {/* Backend status */}
+        <div className={`hidden md:flex items-center text-xs font-medium ${backendOk ? 'text-green-600' : 'text-red-600'}`}>
+          <span className={`inline-block w-2 h-2 rounded-full mr-2 ${backendOk ? 'bg-green-600' : 'bg-red-600'}`}></span>
+          {backendOk ? 'Online' : 'Offline'}
+        </div>
+
         {/* Links - Role-based navigation */}
         <div className="space-x-4 flex items-center">
           {/* Public links */}
@@ -42,9 +64,6 @@ const Navbar = ({ darkMode, setDarkMode }) => {
             <>
               <Link to="/government" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
                 Government
-              </Link>
-              <Link to="/government-enhanced" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
-                Enhanced Gov
               </Link>
               <Link to="/monitoring" className="text-gray-700 dark:text-gray-300 hover:text-teal-600 dark:hover:text-emerald-400 transition-colors duration-300">
                 Monitoring
@@ -78,28 +97,13 @@ const Navbar = ({ darkMode, setDarkMode }) => {
 
           {/* Conditional rendering for Login/Profile menu */}
           {isAuthenticated ? (
-            <div className="relative flex items-center space-x-4">
-              <div className="text-gray-700 dark:text-gray-300">
-                Hello, {user?.email || "User"}! ({user?.role})
-              </div>
+            <div className="relative flex items-center space-x-3">
               <button
                 onClick={toggleProfileMenu}
-                className="p-2 rounded-full bg-teal-100 dark:bg-gray-700 hover:scale-110 transition-transform duration-300 focus:outline-none"
+                className="w-8 h-8 rounded-full bg-teal-600 text-white flex items-center justify-center text-sm font-semibold shadow hover:shadow-md transition"
+                title={user?.role ? user.role.toUpperCase() : 'USER'}
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className="w-6 h-6 text-gray-700 dark:text-gray-300"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M17.982 18.725A7.488 7.488 0 0012 15.75a7.488 7.488 0 00-5.982 2.975m11.963 0A8.966 8.966 0 0112 21a8.966 8.966 0 01-5.982-2.275M15 9.75a3 3 0 11-6 0 3 3 0 016 0z"
-                  />
-                </svg>
+                {(user?.name || user?.email || 'User').slice(0,1).toUpperCase()}
               </button>
               {showProfileMenu && (
                 <div className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 z-50">
